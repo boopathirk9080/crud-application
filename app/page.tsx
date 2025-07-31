@@ -224,7 +224,6 @@ export default function DataTableDemo() {
           }
           onCheckedChange={(value) => handleSelectAllChange(!!value)}
           aria-label="Select all"
-          indeterminate={table.getIsSomePageRowsSelected() ? "true" : undefined}
         />
       ),
       cell: ({ row }) => (
