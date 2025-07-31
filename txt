@@ -1,0 +1,6 @@
+Table name:Students
+id
+name
+email
+phone
+gender

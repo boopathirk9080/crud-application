@@ -1,103 +1,391 @@
-import Image from "next/image";
 
-export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
+"use client";
+
+import * as React from "react";
+import { useRouter } from "next/navigation";
+import {
+  ColumnDef,
+  ColumnFiltersState,
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  SortingState,
+  useReactTable,
+  VisibilityState,
+} from "@tanstack/react-table";
+import {
+  ArrowUpDown,
+  ChevronDown,
+  MoreHorizontal,
+  Pencil,
+  PlusCircle,
+  Trash2,
+} from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { supabase } from "@/lib/supabase";
+
+interface Employee {
+  id: string;
+  name: string;
+  age: number;
+  gender: string;
+  occupation: string;
+  phone: string;
+  mail: string;
+}
+
+export default function DataTableDemo() {
+  const router = useRouter();
+  const [data, setData] = React.useState<Employee[]>([]);
+  const [sorting, setSorting] = React.useState<SortingState>([]);
+  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
+    []
+  );
+  const [columnVisibility, setColumnVisibility] =
+    React.useState<VisibilityState>({});
+  const [rowSelection, setRowSelection] = React.useState({});
+
+  // --- NEW STATE ---
+  // State to track if the user wants to select all data, not just on the current page.
+  const [selectAllData, setSelectAllData] = React.useState(false);
+
+  // Fetch employees data from Supabase
+  const fetchEmployees = async () => {
+    const { data: employees, error } = await supabase
+      .from("Employee")
+      .select("*")
+      .order("id", { ascending: true });
+
+    if (error) {
+      console.error("Error fetching employees:", error.message);
+    } else {
+      setData(employees ?? []);
+    }
+  };
+
+  // Fetch data on component mount
+  React.useEffect(() => {
+    fetchEmployees();
+  }, []);
+
+  // --- NEW HANDLER for bulk deletion ---
+  const handleDeleteSelected = async () => {
+    const selectedRows = table.getSelectedRowModel().rows;
+    let employeeIdsToDelete: string[] = [];
+    let confirmationMessage = "";
+
+    if (selectAllData) {
+      // If "Select All Data" is checked, we target all employees
+      confirmationMessage = "Are you sure you want to delete ALL employees?";
+      employeeIdsToDelete = data.map((emp) => emp.id);
+    } else {
+      // Otherwise, we only target the specifically selected rows
+      confirmationMessage = `Are you sure you want to delete ${selectedRows.length} selected employee(s)?`;
+      employeeIdsToDelete = selectedRows.map((row) => row.original.id);
+    }
+
+    if (employeeIdsToDelete.length === 0) {
+      alert("Please select records to delete.");
+      return;
+    }
+
+    if (window.confirm(confirmationMessage)) {
+      // Use the .in() filter to delete multiple rows at once
+      const { error } = await supabase
+        .from("Employee")
+        .delete()
+        .in("id", employeeIdsToDelete);
+
+      if (error) {
+        alert("Error deleting employees: " + error.message);
+      } else {
+        alert("Selected employees deleted successfully!");
+        fetchEmployees(); // Refresh data
+        // Reset selection states
+        table.resetRowSelection();
+        setSelectAllData(false);
+      }
+    }
+  };
+
+  // Handle single employee deletion (from dropdown menu)
+  const handleDelete = async (employeeId: string) => {
+    if (window.confirm("Are you sure you want to delete this employee?")) {
+      const { error } = await supabase
+        .from("Employee")
+        .delete()
+        .eq("id", employeeId);
+
+      if (error) {
+        alert("Error deleting employee: " + error.message);
+      } else {
+        alert("Employee deleted successfully!");
+        fetchEmployees(); // Refresh the data
+      }
+    }
+  };
+
+  // --- NEW HANDLER for "Select All Data" checkbox ---
+  // This syncs our custom `selectAllData` state with the table's selection
+  const handleSelectAllChange = (checked: boolean) => {
+    setSelectAllData(checked);
+    table.toggleAllRowsSelected(checked);
+  };
+
+  // Define table columns
+  const columns: ColumnDef<Employee>[] = [
+    {
+      id: "select",
+      header: ({ table }) => (
+        <Checkbox
+          id="selectAllData"
+          checked={selectAllData}
+          onCheckedChange={(checked) => handleSelectAllChange(!!checked)}
+          
+          aria-label="Select all"
         />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(value) => row.toggleSelected(!!value)}
+          aria-label="Select row"
+        />
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
+    // ... other columns remain the same
+    {
+      accessorKey: "name",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Name <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
+    },
+    { accessorKey: "age", header: "Age" },
+    { accessorKey: "gender", header: "Gender" },
+    { accessorKey: "occupation", header: "Occupation" },
+    { accessorKey: "phone", header: "Phone" },
+    {
+      accessorKey: "mail",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Email <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      cell: ({ row }) => {
+        const employee = row.original;
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-8 w-8 p-0">
+                <span className="sr-only">Open menu</span>
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => router.push(`/employee/form/${employee.id}`)}
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => handleDelete(employee.id)}
+                className="text-red-600"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      },
+    },
+  ];
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+  const table = useReactTable({
+    data,
+    columns,
+    state: {
+      sorting,
+      columnFilters,
+      columnVisibility,
+      rowSelection,
+    },
+    onSortingChange: setSorting,
+    onColumnFiltersChange: setColumnFilters,
+    onColumnVisibilityChange: setColumnVisibility,
+    onRowSelectionChange: setRowSelection,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    enableRowSelection: true,
+  });
+
+  return (
+    <div className="w-full p-4 md:p-8">
+      {/* --- UPDATED JSX for toolbar --- */}
+      <div className="flex items-center py-4 gap-4 flex-wrap">
+        <Input
+          placeholder="Filter by email..."
+          value={(table.getColumn("mail")?.getFilterValue() as string) ?? ""}
+          onChange={(e) =>
+            table.getColumn("mail")?.setFilterValue(e.target.value)
+          }
+          className="max-w-sm"
+        />
+
+        {/* Conditionally render the delete button if any row is selected */}
+        {table.getSelectedRowModel().rows.length > 0 && (
+          <Button
+            variant="destructive"
+            onClick={handleDeleteSelected}
+            className="ml-2"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+            <Trash2 className="mr-2 h-4 w-4" />
+            {/* Dynamically change button text */}
+            {selectAllData
+              ? "Delete All"
+              : `Delete Selected (${table.getSelectedRowModel().rows.length})`}
+          </Button>
+        )}
+        {/* --- END OF NEW ELEMENTS --- */}
+
+        <div className="ml-auto flex items-center gap-2">
+          <Button onClick={() => router.push("/employee/form")}>
+            <PlusCircle className="mr-2 h-4 w-4" /> Add Employee
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">
+                Columns <ChevronDown className="ml-2 h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {table
+                .getAllColumns()
+                .filter((column) => column.getCanHide())
+                .map((column) => (
+                  <DropdownMenuCheckboxItem
+                    key={column.id}
+                    className="capitalize"
+                    checked={column.getIsVisible()}
+                    onCheckedChange={(value) =>
+                      column.toggleVisibility(!!value)
+                    }
+                  >
+                    {column.id}
+                  </DropdownMenuCheckboxItem>
+                ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
+      </div>
+
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <TableHead key={header.id}>
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {table.getRowModel().rows?.length ? (
+              table.getRowModel().rows.map((row) => (
+                <TableRow
+                  key={row.id}
+                  data-state={row.getIsSelected() && "selected"}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext()
+                      )}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell
+                  colSpan={columns.length}
+                  className="h-24 text-center"
+                >
+                  No results.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+      <div className="flex items-center justify-end space-x-2 py-4">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => table.previousPage()}
+          disabled={!table.getCanPreviousPage()}
         >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
+          Previous
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => table.nextPage()}
+          disabled={!table.getCanNextPage()}
         >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+          Next
+        </Button>
+      </div>
     </div>
   );
 }
