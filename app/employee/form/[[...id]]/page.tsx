@@ -11,6 +11,9 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useParams, useRouter } from "next/navigation";
 
+// MUI Components for Alerts
+import { Alert, Snackbar } from "@mui/material";
+
 // Interface for Employee
 interface Employee {
   id?: string;
@@ -22,13 +25,28 @@ interface Employee {
   mail: string;
 }
 
+// Interface for Snackbar state
+interface SnackbarState {
+  open: boolean;
+  message: string;
+  severity: "success" | "error" | "info" | "warning";
+}
+
 // Validation schema
 const validationSchema = Yup.object({
   name: Yup.string().min(2, "Too Short!").required("Name is required"),
-  age: Yup.number().typeError("Age must be a number").required("Age is required").positive().integer(),
-  gender: Yup.string().oneOf(["male", "female", "other"]).required("Gender is required"),
+  age: Yup.number()
+    .typeError("Age must be a number")
+    .required("Age is required")
+    .positive()
+    .integer(),
+  gender: Yup.string()
+    .oneOf(["male", "female", "other"])
+    .required("Gender is required"),
   occupation: Yup.string().required("Occupation is required"),
-  phone: Yup.string().matches(/^[\+]?[1-9][\d]{9,14}$/, "Invalid phone number").required("Phone is required"),
+  phone: Yup.string()
+    .matches(/^[\+]?[1-9][\d]{9,14}$/, "Invalid phone number")
+    .required("Phone is required"),
   mail: Yup.string().email("Invalid email").required("Email is required"),
 });
 
@@ -36,6 +54,13 @@ export default function EmployeeForm() {
   const router = useRouter();
   const params = useParams();
   const employeeId = params.id?.[0]; // Get id from dynamic route
+
+  // --- MUI Component State ---
+  const [snackbar, setSnackbar] = useState<SnackbarState>({
+    open: false,
+    message: "",
+    severity: "success",
+  });
 
   const formik = useFormik<Employee>({
     initialValues: {
@@ -52,7 +77,10 @@ export default function EmployeeForm() {
       let error;
       if (employeeId) {
         // Update existing employee
-        ({ error } = await supabase.from("Employee").update(values).eq("id", employeeId));
+        ({ error } = await supabase
+          .from("Employee")
+          .update(values)
+          .eq("id", employeeId));
       } else {
         // Insert new employee
         ({ error } = await supabase.from("Employee").insert([values]));
@@ -60,10 +88,21 @@ export default function EmployeeForm() {
 
       setSubmitting(false);
       if (error) {
-        alert("Failed to save data: " + error.message);
+        setSnackbar({
+          open: true,
+          message: `Failed to save data: ${error.message}`,
+          severity: "error",
+        });
       } else {
-        alert(`Employee ${employeeId ? "updated" : "saved"} successfully!`);
-        router.push("/"); // Redirect to the main table
+        setSnackbar({
+          open: true,
+          message: `Employee ${employeeId ? "updated" : "saved"} successfully!`,
+          severity: "success",
+        });
+        // Redirect after a short delay to allow user to see the message
+        setTimeout(() => {
+          router.push("/");
+        }, 2000);
       }
     },
   });
@@ -80,7 +119,11 @@ export default function EmployeeForm() {
 
         if (error) {
           console.error("Error fetching employee:", error);
-          alert("Could not fetch employee data.");
+          setSnackbar({
+            open: true,
+            message: "Could not fetch employee data.",
+            severity: "error",
+          });
           router.push("/");
         } else if (data) {
           formik.setValues(data);
@@ -88,7 +131,13 @@ export default function EmployeeForm() {
       };
       fetchEmployeeData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employeeId, router]);
+
+  // --- Snackbar Handler ---
+  const handleCloseSnackbar = () => {
+    setSnackbar((prev) => ({ ...prev, open: false }));
+  };
 
   // Helper to check for form errors
   const hasError = (fieldName: keyof Employee) =>
@@ -107,7 +156,8 @@ export default function EmployeeForm() {
             {/* Form Fields */}
             {(Object.keys(formik.initialValues) as Array<keyof Employee>).map(
               (key) =>
-                key !== "id" && key !== "gender" && (
+                key !== "id" &&
+                key !== "gender" && (
                   <div key={key} className="space-y-2">
                     <Label htmlFor={key} className="capitalize">
                       {key} *
@@ -115,7 +165,13 @@ export default function EmployeeForm() {
                     <Input
                       id={key}
                       name={key}
-                      type={key === "age" ? "number" : key === "mail" ? "email" : "text"}
+                      type={
+                        key === "age"
+                          ? "number"
+                          : key === "mail"
+                          ? "email"
+                          : "text"
+                      }
                       placeholder={`Enter ${key}`}
                       value={formik.values[key]}
                       onChange={formik.handleChange}
@@ -123,7 +179,9 @@ export default function EmployeeForm() {
                       className={hasError(key) ? "border-red-500" : ""}
                     />
                     {hasError(key) && (
-                      <p className="text-sm text-red-500">{formik.errors[key]}</p>
+                      <p className="text-sm text-red-500">
+                        {formik.errors[key]}
+                      </p>
                     )}
                   </div>
                 )
@@ -150,29 +208,46 @@ export default function EmployeeForm() {
               {hasError("gender") && (
                 <p className="text-sm text-red-500">{formik.errors.gender}</p>
               )}
+              <div className="flex flex-col  gap-4 pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => router.push("/")}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={formik.isSubmitting || !formik.isValid}
+                >
+                  {formik.isSubmitting ? "Saving..." : "Save Employee"}
+                </Button>
+              </div>
             </div>
 
             {/* Action Buttons */}
-            {/* <div className="flex gap-4 pt-4"> */}
-               <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={() => router.push('/')}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={formik.isSubmitting || !formik.isValid}
-              >
-                {formik.isSubmitting ? "Saving..." : "Save Employee"}
-              </Button>
-            {/* </div> */}
           </form>
         </CardContent>
       </Card>
+
+      {/* --- MUI NOTIFICATION COMPONENT --- */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert
+          onClose={handleCloseSnackbar}
+          severity={snackbar.severity}
+          variant="filled"
+          sx={{ width: "100%" }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </div>
   );
 }
