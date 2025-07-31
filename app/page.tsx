@@ -1,4 +1,3 @@
-
 "use client";
 
 import * as React from "react";
@@ -46,6 +45,20 @@ import {
 } from "@/components/ui/table";
 import { supabase } from "@/lib/supabase";
 
+// --- NEW IMPORTS for AlertDialog and Toast ---
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/components/ui/use-toast";
+import { Toaster } from "@/components/ui/toaster";
+
 interface Employee {
   id: string;
   name: string;
@@ -58,6 +71,7 @@ interface Employee {
 
 export default function DataTableDemo() {
   const router = useRouter();
+  const { toast } = useToast(); // Initialize toast
   const [data, setData] = React.useState<Employee[]>([]);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
@@ -66,10 +80,12 @@ export default function DataTableDemo() {
   const [columnVisibility, setColumnVisibility] =
     React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState({});
-
-  // --- NEW STATE ---
-  // State to track if the user wants to select all data, not just on the current page.
   const [selectAllData, setSelectAllData] = React.useState(false);
+
+  // --- NEW STATE for managing the confirmation dialog ---
+  const [isConfirmOpen, setIsConfirmOpen] = React.useState(false);
+  const [confirmAction, setConfirmAction] = React.useState<(() => void) | null>(null);
+  const [confirmMessage, setConfirmMessage] = React.useState("");
 
   // Fetch employees data from Supabase
   const fetchEmployees = async () => {
@@ -80,6 +96,11 @@ export default function DataTableDemo() {
 
     if (error) {
       console.error("Error fetching employees:", error.message);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to fetch employee data.",
+      });
     } else {
       setData(employees ?? []);
     }
@@ -90,80 +111,99 @@ export default function DataTableDemo() {
     fetchEmployees();
   }, []);
 
-  // --- NEW HANDLER for bulk deletion ---
+  // --- REVISED HANDLER for bulk deletion ---
   const handleDeleteSelected = async () => {
     const selectedRows = table.getSelectedRowModel().rows;
     let employeeIdsToDelete: string[] = [];
     let confirmationMessage = "";
 
     if (selectAllData) {
-      // If "Select All Data" is checked, we target all employees
       confirmationMessage = "Are you sure you want to delete ALL employees?";
       employeeIdsToDelete = data.map((emp) => emp.id);
     } else {
-      // Otherwise, we only target the specifically selected rows
       confirmationMessage = `Are you sure you want to delete ${selectedRows.length} selected employee(s)?`;
       employeeIdsToDelete = selectedRows.map((row) => row.original.id);
     }
 
     if (employeeIdsToDelete.length === 0) {
-      alert("Please select records to delete.");
+      toast({
+        title: "No selection",
+        description: "Please select records to delete.",
+      });
       return;
     }
 
-    if (window.confirm(confirmationMessage)) {
-      // Use the .in() filter to delete multiple rows at once
+    // Set confirmation details and open dialog
+    setConfirmMessage(confirmationMessage);
+    setConfirmAction(() => async () => {
       const { error } = await supabase
         .from("Employee")
         .delete()
         .in("id", employeeIdsToDelete);
 
       if (error) {
-        alert("Error deleting employees: " + error.message);
+        toast({
+          variant: "destructive",
+          title: "Deletion Failed",
+          description: error.message,
+        });
       } else {
-        alert("Selected employees deleted successfully!");
-        fetchEmployees(); // Refresh data
-        // Reset selection states
+        toast({
+          title: "Success",
+          description: "Selected employees deleted successfully!",
+        });
+        fetchEmployees();
         table.resetRowSelection();
         setSelectAllData(false);
       }
-    }
+    });
+    setIsConfirmOpen(true);
   };
 
-  // Handle single employee deletion (from dropdown menu)
+  // --- REVISED HANDLER for single employee deletion ---
   const handleDelete = async (employeeId: string) => {
-    if (window.confirm("Are you sure you want to delete this employee?")) {
+    // Set confirmation details and open dialog
+    setConfirmMessage("Are you sure you want to delete this employee?");
+    setConfirmAction(() => async () => {
       const { error } = await supabase
         .from("Employee")
         .delete()
         .eq("id", employeeId);
 
       if (error) {
-        alert("Error deleting employee: " + error.message);
+        toast({
+          variant: "destructive",
+          title: "Deletion Failed",
+          description: error.message,
+        });
       } else {
-        alert("Employee deleted successfully!");
-        fetchEmployees(); // Refresh the data
+        toast({
+          title: "Success",
+          description: "Employee deleted successfully!",
+        });
+        fetchEmployees();
       }
-    }
+    });
+    setIsConfirmOpen(true);
   };
 
-  // --- NEW HANDLER for "Select All Data" checkbox ---
-  // This syncs our custom `selectAllData` state with the table's selection
   const handleSelectAllChange = (checked: boolean) => {
     setSelectAllData(checked);
-    table.toggleAllRowsSelected(checked);
+    table.toggleAllPageRowsSelected(checked);
   };
 
-  // Define table columns
   const columns: ColumnDef<Employee>[] = [
     {
       id: "select",
       header: ({ table }) => (
         <Checkbox
           id="selectAllData"
-          checked={selectAllData}
-          onCheckedChange={(checked) => handleSelectAllChange(!!checked)}
-          
+          checked={
+            selectAllData ||
+            (table.getIsAllPageRowsSelected() &&
+              !table.getIsSomePageRowsSelected())
+          }
+          onCheckedChange={(value) => handleSelectAllChange(!!value)}
           aria-label="Select all"
         />
       ),
@@ -177,7 +217,6 @@ export default function DataTableDemo() {
       enableSorting: false,
       enableHiding: false,
     },
-    // ... other columns remain the same
     {
       accessorKey: "name",
       header: ({ column }) => (
@@ -228,7 +267,7 @@ export default function DataTableDemo() {
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => handleDelete(employee.id)}
-                className="text-red-600"
+                className="text-red-600 focus:text-red-600"
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete
@@ -262,7 +301,33 @@ export default function DataTableDemo() {
 
   return (
     <div className="w-full p-4 md:p-8">
-      {/* --- UPDATED JSX for toolbar --- */}
+      {/* --- NEW: Toaster for displaying notifications --- */}
+      <Toaster />
+
+      {/* --- NEW: AlertDialog for confirmations --- */}
+      <AlertDialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>{confirmMessage}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConfirmAction(null)}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmAction) {
+                  confirmAction();
+                }
+              }}
+            >
+              Continue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <div className="flex items-center py-4 gap-4 flex-wrap">
         <Input
           placeholder="Filter by email..."
@@ -273,7 +338,6 @@ export default function DataTableDemo() {
           className="max-w-sm"
         />
 
-        {/* Conditionally render the delete button if any row is selected */}
         {table.getSelectedRowModel().rows.length > 0 && (
           <Button
             variant="destructive"
@@ -281,13 +345,11 @@ export default function DataTableDemo() {
             className="ml-2"
           >
             <Trash2 className="mr-2 h-4 w-4" />
-            {/* Dynamically change button text */}
             {selectAllData
               ? "Delete All"
               : `Delete Selected (${table.getSelectedRowModel().rows.length})`}
           </Button>
         )}
-        {/* --- END OF NEW ELEMENTS --- */}
 
         <div className="ml-auto flex items-center gap-2">
           <Button onClick={() => router.push("/employee/form")}>
@@ -368,23 +430,29 @@ export default function DataTableDemo() {
           </TableBody>
         </Table>
       </div>
-      <div className="flex items-center justify-end space-x-2 py-4">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => table.previousPage()}
-          disabled={!table.getCanPreviousPage()}
-        >
-          Previous
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => table.nextPage()}
-          disabled={!table.getCanNextPage()}
-        >
-          Next
-        </Button>
+       <div className="flex items-center justify-end space-x-2 py-4">
+        <div className="flex-1 text-sm text-muted-foreground">
+          {table.getFilteredSelectedRowModel().rows.length} of{" "}
+          {table.getFilteredRowModel().rows.length} row(s) selected.
+        </div>
+        <div className="space-x-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => table.previousPage()}
+            disabled={!table.getCanPreviousPage()}
+          >
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
+          >
+            Next
+          </Button>
+        </div>
       </div>
     </div>
   );
